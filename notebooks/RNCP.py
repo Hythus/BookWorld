@@ -10,10 +10,10 @@
 # ---
 
 # %% [markdown]
-# # Partie 1 — Collecte des données BookWorld
+# # Partie 1 — Collecte et extraction des données (1.1 & 1.2)
 #
-# ## 1. Imports, lecture du CSV de ventes et extraction SQLite
-# Chargement des librairies nécessaires, lecture du fichier des ventes (`base_de_données_bookworld.csv`) et extraction des tables de référence (`channels`, `countries`, `category_rules`) depuis `bookworld_reference.db`.
+# ## 1. Imports, lecture du CSV de ventes et extraction SQLite filtrée
+# Chargement des librairies nécessaires, lecture du fichier des ventes (`base_de_données_bookworld.csv`) et extraction filtrée de la table de référence `countries` depuis `bookworld_reference.db` (pays en `EUR` ou `GBP` uniquement ; les tables `channels` et `category_rules` ne sont pas utilisées pour le KPI par pays).
 
 # %%
 import sqlite3
@@ -22,16 +22,31 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
-path = Path(r"C:\Users\Deval\Documents\data bird\RNCP\Sources")
+path = Path("../Sources")
+if not path.exists():
+    path = Path("Sources")
 
-# Import du CSV
+# Import du CSV des ventes
 df_bookworld = pd.read_csv(path / "base_de_données_bookworld.csv")
 
-# Import des tables SQLite
+# Extraction SQL filtrée depuis la base SQLite de référence (pays en EUR ou GBP)
+query_countries = """
+SELECT
+    country_code,
+    country_name,
+    currency_code,
+    vat_rate,
+    region,
+    is_active
+FROM countries
+WHERE currency_code IN ('EUR', 'GBP');
+"""
+
 with sqlite3.connect(path / "bookworld_reference.db") as conn:
-    df_channels = pd.read_sql_query("SELECT * FROM channels", conn)
-    df_countries = pd.read_sql_query("SELECT * FROM countries", conn)
-    df_category_rules = pd.read_sql_query("SELECT * FROM category_rules", conn)
+    df_countries = pd.read_sql_query(query_countries, conn)
+
+print("Ventes chargées :", df_bookworld.shape)
+df_countries
 
 # %% [markdown]
 # ## 2. Scraping — Récupération des URLs des livres (page 1)
@@ -164,6 +179,8 @@ except requests.exceptions.RequestException as e:
 df_exchange_rates.head()
 
 # %% [markdown]
+# # Partie 2 — Nettoyage, enrichissement, base finale et agrégation (2.1 & 2.2)
+#
 # ## 5. API VATEstimator — Compléter `df_countries` avec les pays manquants
 # Identification des codes pays présents dans `df_bookworld` mais absents de `df_countries`, puis appel à l'API publique VATEstimator (`vatestimator.com/api/v1/rates.json`) pour récupérer leurs informations (nom, devise, taux de TVA, région) et compléter `df_countries`.
 
@@ -209,22 +226,20 @@ df_countries
 
 # %% [markdown]
 # ## 6. Nettoyage et typage des colonnes avant l'export SQLite
-# Harmonisation explicite des types dans chaque DataFrame (dates au format `DATE`, prix et taux en `float`, quantités en `int`) et normalisation des titres de livres (`strip` + `lower`) dans `df_bookworld` et `df_books` pour fiabiliser la jointure.
+# Harmonisation des types (`DATE`, `float`, `int`), normalisation des titres de livres (`strip` + `lower`) pour fiabiliser la jointure, et suppression des noms clients (RGPD) inutiles au pilotage par pays.
 
 # %%
 # 1. Dates -> format date (YYYY-MM-DD, type DATE dans SQLite)
 df_bookworld["order_date"] = pd.to_datetime(df_bookworld["order_date"]).dt.date
 df_exchange_rates["rate_date"] = pd.to_datetime(df_exchange_rates["rate_date"]).dt.date
 
-# 2. Prix et coûts -> float
+# 2. Prix -> float
 df_books["prix_ht"] = df_books["prix_ht"].astype(float)
 df_books["prix_ttc"] = df_books["prix_ttc"].astype(float)
-df_channels["acquisition_cost_gbp"] = df_channels["acquisition_cost_gbp"].astype(float)
 
 # 3. Taux -> float
 df_bookworld["discount_rate"] = df_bookworld["discount_rate"].astype(float)
 df_countries["vat_rate"] = df_countries["vat_rate"].astype(float)
-df_category_rules["margin_rate"] = df_category_rules["margin_rate"].astype(float)
 df_exchange_rates["rate"] = df_exchange_rates["rate"].astype(float)
 
 # 4. Quantités -> int
@@ -234,27 +249,28 @@ df_bookworld["quantity"] = df_bookworld["quantity"].astype(int)
 df_bookworld["book_name"] = df_bookworld["book_name"].str.strip().str.lower()
 df_books["titre"] = df_books["titre"].str.strip().str.lower()
 
+# 6. Suppression des données personnelles clients (RGPD)
+df_bookworld = df_bookworld.drop(columns=["customer_first_name", "customer_last_name"], errors="ignore")
+
 # Vérification rapide des types
 print("df_bookworld :\n", df_bookworld.dtypes, "\n")
 print("df_books :\n", df_books.dtypes, "\n")
 print("df_exchange_rates :\n", df_exchange_rates.dtypes)
 
 # %% [markdown]
-# ## 7. Création de la nouvelle base SQLite exploitable (`database/bookworld.db`)
-# Enregistrement de l'ensemble des données collectées (ventes CSV, catalogue scrapé, référentiels SQLite enrichis avec les pays manquants et table `exchange_rates` issue de l'API Frankfurter) dans une nouvelle base SQLite prête pour les requêtes SQL.
+# ## 7. Création de la base SQLite finale (`database/bookworld.db`)
+# Enregistrement des 4 tables propres (`sales`, `books`, `countries`, `exchange_rates`) dans `database/bookworld.db`, sans modifier la base source.
 
 # %%
 # Création de la nouvelle base SQLite dans le dossier database/ (sans modifier la base source)
-dossier_db = path.parent / "database"
+dossier_db = path.resolve().parent / "database"
 dossier_db.mkdir(exist_ok=True)
 db_finale = dossier_db / "bookworld.db"
 
 with sqlite3.connect(db_finale) as conn:
     df_bookworld.to_sql("sales", conn, if_exists="replace", index=False)
     df_books.to_sql("books", conn, if_exists="replace", index=False)
-    df_channels.to_sql("channels", conn, if_exists="replace", index=False)
     df_countries.to_sql("countries", conn, if_exists="replace", index=False)
-    df_category_rules.to_sql("category_rules", conn, if_exists="replace", index=False)
     df_exchange_rates.to_sql("exchange_rates", conn, if_exists="replace", index=False)
 
     # Vérification des tables créées
@@ -262,3 +278,66 @@ with sqlite3.connect(db_finale) as conn:
 
 print(f"Base créée : {db_finale}")
 tables
+
+# %% [markdown]
+# ## 8. Agrégation SQL — Création de la table finale `sales_by_country`
+# Calcul des ventes agrégées par pays (HT et TTC, en GBP et en EUR au taux du jour de commande) via une requête SQL et enregistrement de la table `sales_by_country` dans `database/bookworld.db` pour l'API.
+
+# %%
+# Requête SQL d'agrégation des ventes par pays
+query_sales_by_country = """
+WITH livres AS (
+    SELECT
+        titre,
+        prix_ht,
+        prix_ttc
+    FROM books
+),
+pays AS (
+    SELECT
+        country_code,
+        country_name,
+        currency_code,
+        vat_rate
+    FROM countries
+    WHERE currency_code IN ('EUR', 'GBP')
+)
+SELECT
+    s.country_code,
+    p.country_name,
+    COUNT(DISTINCT s.order_id) AS total_orders,
+    SUM(COALESCE(s.quantity, 1)) AS total_quantity,
+    ROUND(
+        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0))),
+        2
+    ) AS total_revenue_gbp,
+    ROUND(
+        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (1 + p.vat_rate / 100.0)),
+        2
+    ) AS total_revenue_gbp_ttc,
+    ROUND(
+        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * er.rate),
+        2
+    ) AS total_revenue_eur,
+    ROUND(
+        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (1 + p.vat_rate / 100.0) * er.rate),
+        2
+    ) AS total_revenue_eur_ttc
+FROM sales s
+LEFT JOIN livres l
+    ON s.book_name = l.titre
+LEFT JOIN pays p
+    ON s.country_code = p.country_code
+LEFT JOIN exchange_rates er
+    ON s.order_date = er.rate_date
+GROUP BY
+    s.country_code,
+    p.country_name
+ORDER BY total_revenue_eur DESC;
+"""
+
+with sqlite3.connect(db_finale) as conn:
+    df_sales_by_country = pd.read_sql_query(query_sales_by_country, conn)
+    df_sales_by_country.to_sql("sales_by_country", conn, if_exists="replace", index=False)
+
+df_sales_by_country
