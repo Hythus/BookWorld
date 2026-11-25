@@ -208,7 +208,39 @@ if len(pays_manquants) > 0:
 df_countries
 
 # %% [markdown]
-# ## 6. Création de la nouvelle base SQLite exploitable (`database/bookworld.db`)
+# ## 6. Nettoyage et typage des colonnes avant l'export SQLite
+# Harmonisation explicite des types dans chaque DataFrame (dates au format `DATE`, prix et taux en `float`, quantités en `int`) et normalisation des titres de livres (`strip` + `lower`) dans `df_bookworld` et `df_books` pour fiabiliser la jointure.
+
+# %%
+# 1. Dates -> format date (YYYY-MM-DD, type DATE dans SQLite)
+df_bookworld["order_date"] = pd.to_datetime(df_bookworld["order_date"]).dt.date
+df_exchange_rates["rate_date"] = pd.to_datetime(df_exchange_rates["rate_date"]).dt.date
+
+# 2. Prix et coûts -> float
+df_books["prix_ht"] = df_books["prix_ht"].astype(float)
+df_books["prix_ttc"] = df_books["prix_ttc"].astype(float)
+df_channels["acquisition_cost_gbp"] = df_channels["acquisition_cost_gbp"].astype(float)
+
+# 3. Taux -> float
+df_bookworld["discount_rate"] = df_bookworld["discount_rate"].astype(float)
+df_countries["vat_rate"] = df_countries["vat_rate"].astype(float)
+df_category_rules["margin_rate"] = df_category_rules["margin_rate"].astype(float)
+df_exchange_rates["rate"] = df_exchange_rates["rate"].astype(float)
+
+# 4. Quantités -> int
+df_bookworld["quantity"] = df_bookworld["quantity"].astype(int)
+
+# 5. Normalisation des titres de livres (trim + minuscules) pour la jointure
+df_bookworld["book_name"] = df_bookworld["book_name"].str.strip().str.lower()
+df_books["titre"] = df_books["titre"].str.strip().str.lower()
+
+# Vérification rapide des types
+print("df_bookworld :\n", df_bookworld.dtypes, "\n")
+print("df_books :\n", df_books.dtypes, "\n")
+print("df_exchange_rates :\n", df_exchange_rates.dtypes)
+
+# %% [markdown]
+# ## 7. Création de la nouvelle base SQLite exploitable (`database/bookworld.db`)
 # Enregistrement de l'ensemble des données collectées (ventes CSV, catalogue scrapé, référentiels SQLite enrichis avec les pays manquants et table `exchange_rates` issue de l'API Frankfurter) dans une nouvelle base SQLite prête pour les requêtes SQL.
 
 # %%
