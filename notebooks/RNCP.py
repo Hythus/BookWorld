@@ -13,7 +13,9 @@
 # # Partie 1 — Collecte et extraction des données (1.1 & 1.2)
 #
 # ## 1. Imports, lecture du CSV de ventes et extraction SQLite filtrée
-# Chargement des librairies nécessaires, lecture du fichier des ventes (`base_de_données_bookworld.csv`) et extraction filtrée de la table de référence `countries` depuis `bookworld_reference.db` (pays en `EUR` ou `GBP` uniquement ; les tables `channels` et `category_rules` ne sont pas utilisées pour le KPI par pays).
+# Chargement des librairies nécessaires, lecture du fichier des ventes (`base_de_donneees_bookworld.csv`) et extraction filtrée de la table de référence `countries` depuis `bookworld_reference.db` (pays en `EUR` ou `GBP` uniquement ; les tables `channels` et `category_rules` ne sont pas utilisées pour le KPI par pays).
+#
+# *Note :* le fichier CSV source a été renommé sans accent en `base_de_donneees_bookworld.csv` afin d'éviter les problèmes d'encodage Unicode (`é` décomposé macOS vs Windows) lors de la lecture en Python.
 
 # %%
 import sqlite3
@@ -27,7 +29,7 @@ if not path.exists():
     path = Path("Sources")
 
 # Import du CSV des ventes
-df_bookworld = pd.read_csv(path / "base_de_données_bookworld.csv")
+df_bookworld = pd.read_csv(path / "base_de_donneees_bookworld.csv")
 
 # Extraction SQL filtrée depuis la base SQLite de référence (pays en EUR ou GBP)
 query_countries = """

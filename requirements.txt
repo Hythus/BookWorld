@@ -1,0 +1,17 @@
+# Pipeline & API REST
+pandas>=3.1.1
+requests>=2.34.2
+beautifulsoup4>=4.15.0
+fastapi>=0.165.0
+uvicorn>=0.54.0
+python-dotenv>=1.2.4
+
+# Notebooks, synchronisation & analyse / visualisation
+jupyter>=1.1.1
+ipykernel>=7.4.0
+jupytext>=1.19.7
+numpy>=2.5.5
+openpyxl>=3.1.5
+matplotlib>=3.11.2
+seaborn>=0.13.2
+plotly>=7.2.0
