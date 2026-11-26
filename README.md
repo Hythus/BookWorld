@@ -145,7 +145,7 @@ uv run python pipeline.py
    - typage explicite (`DATE` pour les dates, `float` pour les prix/taux, `int` pour les quantités),
    - normalisation des titres de livres (`strip()` + `lower()`),
    - **suppression des colonnes nominatives** `customer_first_name` et `customer_last_name` (principe de minimisation des données — **Article 5.1.c du RGPD**).
-6. **Création de la base finale & agrégation** : application de `schema_final.sql` dans `database/bookworld.db` (clés primaires et étrangères activées), insertion des données propres, puis calcul et sauvegarde de la table agrégée `sales_by_country`.
+6. **Création de la base finale & agrégation** : application de `schema_final.sql` dans `database/bookworld.db` (clés primaires et étrangères activées), insertion des données propres, puis calcul et sauvegarde de la table agrégée `sales_by_country` (CA TTC en GBP/EUR, TVA en EUR et CA HT en EUR).
 
 ---
 
@@ -202,10 +202,10 @@ Ouvrir la documentation interactive **Swagger UI** dans le navigateur :
     "country_name": "France",
     "total_orders": 56,
     "total_quantity": 130,
-    "total_revenue_gbp": 3979.2,
-    "total_revenue_gbp_ttc": 4775.04,
-    "total_revenue_eur": 4718.74,
-    "total_revenue_eur_ttc": 5662.48
+    "total_revenue_gbp": 4775.04,
+    "total_revenue_eur": 5662.48,
+    "total_vat_eur": 943.75,
+    "total_tax_excl_eur": 4718.74
   }
 ]
 ```

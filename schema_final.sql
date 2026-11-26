@@ -47,8 +47,8 @@ CREATE TABLE IF NOT EXISTS sales_by_country (
     total_orders INTEGER NOT NULL,
     total_quantity INTEGER NOT NULL,
     total_revenue_gbp REAL NOT NULL,
-    total_revenue_gbp_ttc REAL NOT NULL,
     total_revenue_eur REAL NOT NULL,
-    total_revenue_eur_ttc REAL NOT NULL,
+    total_vat_eur REAL NOT NULL,
+    total_tax_excl_eur REAL NOT NULL,
     FOREIGN KEY (country_code) REFERENCES countries (country_code)
 );

@@ -283,7 +283,7 @@ tables
 
 # %% [markdown]
 # ## 8. Agrégation SQL — Création de la table finale `sales_by_country`
-# Calcul des ventes agrégées par pays (HT et TTC, en GBP et en EUR au taux du jour de commande) via une requête SQL et enregistrement de la table `sales_by_country` dans `database/bookworld.db` pour l'API.
+# Calcul des ventes agrégées par pays (CA TTC en GBP et en EUR, montant de TVA en EUR et CA HT en EUR au taux du jour de commande) via une requête SQL et enregistrement de la table `sales_by_country` dans `database/bookworld.db` pour l'API.
 
 # %%
 # Requête SQL d'agrégation des ventes par pays
@@ -310,21 +310,21 @@ SELECT
     COUNT(DISTINCT s.order_id) AS total_orders,
     SUM(COALESCE(s.quantity, 1)) AS total_quantity,
     ROUND(
-        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0))),
+        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (1 + p.vat_rate / 100.0)),
         2
     ) AS total_revenue_gbp,
     ROUND(
-        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (1 + p.vat_rate / 100.0)),
-        2
-    ) AS total_revenue_gbp_ttc,
-    ROUND(
-        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * er.rate),
+        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (1 + p.vat_rate / 100.0) * er.rate),
         2
     ) AS total_revenue_eur,
     ROUND(
-        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (1 + p.vat_rate / 100.0) * er.rate),
+        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (p.vat_rate / 100.0) * er.rate),
         2
-    ) AS total_revenue_eur_ttc
+    ) AS total_vat_eur,
+    ROUND(
+        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * er.rate),
+        2
+    ) AS total_tax_excl_eur
 FROM sales s
 LEFT JOIN livres l
     ON s.book_name = l.titre
