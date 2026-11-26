@@ -138,7 +138,7 @@ uv run python pipeline.py
 
 ### Étapes réalisées par `pipeline.py`
 1. **Lecture des sources locales** : chargement du CSV des ventes (`Sources/base_de_donneees_bookworld.csv`, renommé sans accent pour éviter les écarts d'encodage Unicode macOS/Windows) et extraction SQL filtrée des pays en `EUR` ou `GBP` depuis `Sources/bookworld_reference.db`.
-2. **Scraping web (`books.toscrape.com`)** : collecte des 20 livres de la page 1 (`titre`, `categorie`, `prix_ht`, `prix_ttc`) avec `timeout=10` et gestion des erreurs réseau.
+2. **Scraping web (`books.toscrape.com`)** : collecte des 20 livres de la page 1 (`titre`, `categorie`, `prix_ttc`) avec `timeout=10` et gestion des erreurs réseau (le montant HT et la TVA sont ensuite recalculés à partir des taux de TVA par pays).
 3. **Taux de change historiques (API Frankfurter)** : récupération des taux `GBP → EUR` sur la plage `min..max` des dates de commandes (en une seule requête HTTP par lot), report du dernier jour ouvré pour les week-ends/fériés, puis filtrage sur les 127 dates exactes de commandes.
 4. **Enrichissement TVA (API VATEstimator)** : détection des pays présents dans les ventes mais absents du référentiel (`NL`) et ajout automatique dans `countries`.
 5. **Nettoyage, typage & conformité RGPD** :
@@ -202,10 +202,10 @@ Ouvrir la documentation interactive **Swagger UI** dans le navigateur :
     "country_name": "France",
     "total_orders": 56,
     "total_quantity": 130,
-    "total_revenue_gbp": 4775.04,
-    "total_revenue_eur": 5662.48,
-    "total_vat_eur": 943.75,
-    "total_tax_excl_eur": 4718.74
+    "total_revenue_gbp": 3979.2,
+    "total_revenue_eur": 4718.74,
+    "total_vat_eur": 786.46,
+    "total_tax_excl_eur": 3932.28
   }
 ]
 ```

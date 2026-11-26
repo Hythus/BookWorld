@@ -59,7 +59,7 @@ def scraper_urls_livres():
 
 
 def scraper_details_livres(urls_livres):
-    """Parcourt chaque URL de livre pour récupérer titre, catégorie et prix HT/TTC."""
+    """Parcourt chaque URL de livre pour récupérer titre, catégorie et prix TTC."""
     donnees_livres = []
 
     for url_livre in urls_livres:
@@ -73,22 +73,18 @@ def scraper_details_livres(urls_livres):
             categorie = liens_categorie[2].text.strip()
 
             lignes = soup.find("table", class_="table-striped").find_all("tr")
-            prix_ht = None
             prix_ttc = None
 
             for ligne in lignes:
                 entete = ligne.find("th").text.strip()
                 valeur = ligne.find("td").text.strip()
 
-                if entete == "Price (excl. tax)":
-                    prix_ht = float(valeur.replace("£", ""))
-                elif entete == "Price (incl. tax)":
+                if entete == "Price (incl. tax)":
                     prix_ttc = float(valeur.replace("£", ""))
 
             donnees_livres.append({
                 "titre": titre,
                 "categorie": categorie,
-                "prix_ht": prix_ht,
                 "prix_ttc": prix_ttc,
             })
         except requests.exceptions.RequestException as e:
@@ -202,7 +198,6 @@ def nettoyer_et_typer(df_bookworld, df_books, df_countries, df_exchange_rates):
     df_exchange_rates["rate_date"] = pd.to_datetime(df_exchange_rates["rate_date"]).dt.date
 
     # 2. Prix -> float
-    df_books["prix_ht"] = df_books["prix_ht"].astype(float)
     df_books["prix_ttc"] = df_books["prix_ttc"].astype(float)
 
     # 3. Taux -> float
@@ -256,7 +251,6 @@ def creer_table_sales_by_country():
     WITH livres AS (
         SELECT
             titre,
-            prix_ht,
             prix_ttc
         FROM books
     ),
@@ -268,38 +262,37 @@ def creer_table_sales_by_country():
             vat_rate
         FROM countries
         WHERE currency_code IN ('EUR', 'GBP')
+    ),
+    ventes_detail AS (
+        SELECT
+            s.order_id,
+            s.country_code,
+            p.country_name,
+            COALESCE(s.quantity, 1) AS quantite,
+            l.prix_ttc * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) AS montant_gbp_ttc,
+            l.prix_ttc * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * er.rate AS montant_eur_ttc,
+            (l.prix_ttc * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * er.rate) / (1 + p.vat_rate / 100.0) AS montant_eur_ht
+        FROM sales s
+        LEFT JOIN livres l
+            ON s.book_name = l.titre
+        LEFT JOIN pays p
+            ON s.country_code = p.country_code
+        LEFT JOIN exchange_rates er
+            ON s.order_date = er.rate_date
     )
     SELECT
-        s.country_code,
-        p.country_name,
-        COUNT(DISTINCT s.order_id) AS total_orders,
-        SUM(COALESCE(s.quantity, 1)) AS total_quantity,
-        ROUND(
-            SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (1 + p.vat_rate / 100.0)),
-            2
-        ) AS total_revenue_gbp,
-        ROUND(
-            SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (1 + p.vat_rate / 100.0) * er.rate),
-            2
-        ) AS total_revenue_eur,
-        ROUND(
-            SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (p.vat_rate / 100.0) * er.rate),
-            2
-        ) AS total_vat_eur,
-        ROUND(
-            SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * er.rate),
-            2
-        ) AS total_tax_excl_eur
-    FROM sales s
-    LEFT JOIN livres l
-        ON s.book_name = l.titre
-    LEFT JOIN pays p
-        ON s.country_code = p.country_code
-    LEFT JOIN exchange_rates er
-        ON s.order_date = er.rate_date
+        country_code,
+        country_name,
+        COUNT(DISTINCT order_id) AS total_orders,
+        SUM(quantite) AS total_quantity,
+        ROUND(SUM(montant_gbp_ttc), 2) AS total_revenue_gbp,
+        ROUND(SUM(montant_eur_ttc), 2) AS total_revenue_eur,
+        ROUND(SUM(montant_eur_ttc - montant_eur_ht), 2) AS total_vat_eur,
+        ROUND(SUM(montant_eur_ht), 2) AS total_tax_excl_eur
+    FROM ventes_detail
     GROUP BY
-        s.country_code,
-        p.country_name
+        country_code,
+        country_name
     ORDER BY total_revenue_eur DESC;
     """
 

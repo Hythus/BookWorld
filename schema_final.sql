@@ -7,7 +7,6 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS books (
     titre TEXT PRIMARY KEY,
     categorie TEXT,
-    prix_ht REAL NOT NULL,
     prix_ttc REAL NOT NULL
 );
 

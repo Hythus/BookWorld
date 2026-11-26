@@ -13,7 +13,6 @@ WHERE currency_code IN ('EUR', 'GBP');
 WITH livres AS (
     SELECT
         titre,
-        prix_ht,
         prix_ttc
     FROM books
 ),
@@ -25,36 +24,35 @@ pays AS (
         vat_rate
     FROM countries
     WHERE currency_code IN ('EUR', 'GBP')
+),
+ventes_detail AS (
+    SELECT
+        s.order_id,
+        s.country_code,
+        p.country_name,
+        COALESCE(s.quantity, 1) AS quantite,
+        l.prix_ttc * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) AS montant_gbp_ttc,
+        l.prix_ttc * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * er.rate AS montant_eur_ttc,
+        (l.prix_ttc * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * er.rate) / (1 + p.vat_rate / 100.0) AS montant_eur_ht
+    FROM sales s
+    LEFT JOIN livres l
+        ON s.book_name = l.titre
+    LEFT JOIN pays p
+        ON s.country_code = p.country_code
+    LEFT JOIN exchange_rates er
+        ON s.order_date = er.rate_date
 )
 SELECT
-    s.country_code,
-    p.country_name,
-    COUNT(DISTINCT s.order_id) AS total_orders,
-    SUM(COALESCE(s.quantity, 1)) AS total_quantity,
-    ROUND(
-        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (1 + p.vat_rate / 100.0)),
-        2
-    ) AS total_revenue_gbp,
-    ROUND(
-        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (1 + p.vat_rate / 100.0) * er.rate),
-        2
-    ) AS total_revenue_eur,
-    ROUND(
-        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (p.vat_rate / 100.0) * er.rate),
-        2
-    ) AS total_vat_eur,
-    ROUND(
-        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * er.rate),
-        2
-    ) AS total_tax_excl_eur
-FROM sales s
-LEFT JOIN livres l
-    ON s.book_name = l.titre
-LEFT JOIN pays p
-    ON s.country_code = p.country_code
-LEFT JOIN exchange_rates er
-    ON s.order_date = er.rate_date
+    country_code,
+    country_name,
+    COUNT(DISTINCT order_id) AS total_orders,
+    SUM(quantite) AS total_quantity,
+    ROUND(SUM(montant_gbp_ttc), 2) AS total_revenue_gbp,
+    ROUND(SUM(montant_eur_ttc), 2) AS total_revenue_eur,
+    ROUND(SUM(montant_eur_ttc - montant_eur_ht), 2) AS total_vat_eur,
+    ROUND(SUM(montant_eur_ht), 2) AS total_tax_excl_eur
+FROM ventes_detail
 GROUP BY
-    s.country_code,
-    p.country_name
+    country_code,
+    country_name
 ORDER BY total_revenue_eur DESC;

@@ -80,10 +80,10 @@ urls_livres[:5]
 
 # %% [markdown]
 # ## 3. Scraping — Extraction des informations de chaque livre
-# Parcours de chaque URL pour récupérer le titre, la catégorie et les prix HT / TTC, puis construction du DataFrame `df_books`.
+# Parcours de chaque URL pour récupérer le titre, la catégorie et le prix TTC (le prix HT sera recalculé en SQL à partir de la TVA de chaque pays), puis construction du DataFrame `df_books`.
 
 # %%
-# Parcours de chaque URL pour récupérer titre, catégorie et prix HT / TTC
+# Parcours de chaque URL pour récupérer titre, catégorie et prix TTC
 donnees_livres = []
 
 for url_livre in urls_livres:
@@ -99,24 +99,20 @@ for url_livre in urls_livres:
         liens_categorie = soup.find("ul", class_="breadcrumb").find_all("a")
         categorie = liens_categorie[2].text.strip()
 
-        # Prix HT et Prix TTC dans le tableau d'informations
+        # Prix TTC dans le tableau d'informations
         lignes = soup.find("table", class_="table-striped").find_all("tr")
-        prix_ht = None
         prix_ttc = None
 
         for ligne in lignes:
             entete = ligne.find("th").text.strip()
             valeur = ligne.find("td").text.strip()
 
-            if entete == "Price (excl. tax)":
-                prix_ht = float(valeur.replace("£", ""))
-            elif entete == "Price (incl. tax)":
+            if entete == "Price (incl. tax)":
                 prix_ttc = float(valeur.replace("£", ""))
 
         donnees_livres.append({
             "titre": titre,
             "categorie": categorie,
-            "prix_ht": prix_ht,
             "prix_ttc": prix_ttc,
         })
     except requests.exceptions.RequestException as e:
@@ -236,7 +232,6 @@ df_bookworld["order_date"] = pd.to_datetime(df_bookworld["order_date"]).dt.date
 df_exchange_rates["rate_date"] = pd.to_datetime(df_exchange_rates["rate_date"]).dt.date
 
 # 2. Prix -> float
-df_books["prix_ht"] = df_books["prix_ht"].astype(float)
 df_books["prix_ttc"] = df_books["prix_ttc"].astype(float)
 
 # 3. Taux -> float
@@ -283,7 +278,7 @@ tables
 
 # %% [markdown]
 # ## 8. Agrégation SQL — Création de la table finale `sales_by_country`
-# Calcul des ventes agrégées par pays (CA TTC en GBP et en EUR, montant de TVA en EUR et CA HT en EUR au taux du jour de commande) via une requête SQL et enregistrement de la table `sales_by_country` dans `database/bookworld.db` pour l'API.
+# Calcul des ventes agrégées par pays : CA TTC en GBP et en EUR à partir de `prix_ttc` (au taux du jour de commande), puis recalcul du CA HT et du montant de TVA en EUR grâce au taux de TVA de chaque pays, et enregistrement dans `database/bookworld.db` pour l'API.
 
 # %%
 # Requête SQL d'agrégation des ventes par pays
@@ -291,7 +286,6 @@ query_sales_by_country = """
 WITH livres AS (
     SELECT
         titre,
-        prix_ht,
         prix_ttc
     FROM books
 ),
@@ -303,38 +297,37 @@ pays AS (
         vat_rate
     FROM countries
     WHERE currency_code IN ('EUR', 'GBP')
+),
+ventes_detail AS (
+    SELECT
+        s.order_id,
+        s.country_code,
+        p.country_name,
+        COALESCE(s.quantity, 1) AS quantite,
+        l.prix_ttc * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) AS montant_gbp_ttc,
+        l.prix_ttc * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * er.rate AS montant_eur_ttc,
+        (l.prix_ttc * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * er.rate) / (1 + p.vat_rate / 100.0) AS montant_eur_ht
+    FROM sales s
+    LEFT JOIN livres l
+        ON s.book_name = l.titre
+    LEFT JOIN pays p
+        ON s.country_code = p.country_code
+    LEFT JOIN exchange_rates er
+        ON s.order_date = er.rate_date
 )
 SELECT
-    s.country_code,
-    p.country_name,
-    COUNT(DISTINCT s.order_id) AS total_orders,
-    SUM(COALESCE(s.quantity, 1)) AS total_quantity,
-    ROUND(
-        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (1 + p.vat_rate / 100.0)),
-        2
-    ) AS total_revenue_gbp,
-    ROUND(
-        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (1 + p.vat_rate / 100.0) * er.rate),
-        2
-    ) AS total_revenue_eur,
-    ROUND(
-        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * (p.vat_rate / 100.0) * er.rate),
-        2
-    ) AS total_vat_eur,
-    ROUND(
-        SUM(l.prix_ht * COALESCE(s.quantity, 1) * (1 - COALESCE(s.discount_rate, 0)) * er.rate),
-        2
-    ) AS total_tax_excl_eur
-FROM sales s
-LEFT JOIN livres l
-    ON s.book_name = l.titre
-LEFT JOIN pays p
-    ON s.country_code = p.country_code
-LEFT JOIN exchange_rates er
-    ON s.order_date = er.rate_date
+    country_code,
+    country_name,
+    COUNT(DISTINCT order_id) AS total_orders,
+    SUM(quantite) AS total_quantity,
+    ROUND(SUM(montant_gbp_ttc), 2) AS total_revenue_gbp,
+    ROUND(SUM(montant_eur_ttc), 2) AS total_revenue_eur,
+    ROUND(SUM(montant_eur_ttc - montant_eur_ht), 2) AS total_vat_eur,
+    ROUND(SUM(montant_eur_ht), 2) AS total_tax_excl_eur
+FROM ventes_detail
 GROUP BY
-    s.country_code,
-    p.country_name
+    country_code,
+    country_name
 ORDER BY total_revenue_eur DESC;
 """
 
