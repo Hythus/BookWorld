@@ -49,5 +49,6 @@ CREATE TABLE IF NOT EXISTS sales_by_country (
     total_revenue_eur REAL NOT NULL,
     total_vat_eur REAL NOT NULL,
     total_tax_excl_eur REAL NOT NULL,
+    average_basket_eur REAL NOT NULL,
     FOREIGN KEY (country_code) REFERENCES countries (country_code)
 );

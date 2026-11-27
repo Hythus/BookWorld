@@ -278,7 +278,7 @@ tables
 
 # %% [markdown]
 # ## 8. Agrégation SQL — Création de la table finale `sales_by_country`
-# Calcul des ventes agrégées par pays : CA TTC en GBP et en EUR à partir de `prix_ttc` (au taux du jour de commande), puis recalcul du CA HT et du montant de TVA en EUR grâce au taux de TVA de chaque pays, et enregistrement dans `database/bookworld.db` pour l'API.
+# Calcul des ventes agrégées par pays : CA TTC en GBP et en EUR à partir de `prix_ttc` (au taux du jour de commande), recalcul du CA HT et du montant de TVA en EUR grâce au taux de TVA de chaque pays, et calcul du panier moyen TTC en EUR (`average_basket_eur`), puis enregistrement dans `database/bookworld.db` pour l'API.
 
 # %%
 # Requête SQL d'agrégation des ventes par pays
@@ -323,7 +323,8 @@ SELECT
     ROUND(SUM(montant_gbp_ttc), 2) AS total_revenue_gbp,
     ROUND(SUM(montant_eur_ttc), 2) AS total_revenue_eur,
     ROUND(SUM(montant_eur_ttc - montant_eur_ht), 2) AS total_vat_eur,
-    ROUND(SUM(montant_eur_ht), 2) AS total_tax_excl_eur
+    ROUND(SUM(montant_eur_ht), 2) AS total_tax_excl_eur,
+    ROUND(SUM(montant_eur_ttc) / COUNT(DISTINCT order_id), 2) AS average_basket_eur
 FROM ventes_detail
 GROUP BY
     country_code,
@@ -336,3 +337,200 @@ with sqlite3.connect(db_finale) as conn:
     df_sales_by_country.to_sql("sales_by_country", conn, if_exists="replace", index=False)
 
 df_sales_by_country
+
+# %% [markdown]
+# # Partie 3 — Visualisations pour la présentation (Matplotlib & Seaborn)
+#
+# ## 9. Évolution journalière du taux de change GBP → EUR
+# Visualisation de la table `exchange_rates` avec `seaborn` et `matplotlib` pour illustrer les fluctuations sur la période (127 jours) et justifier l'ajustement quotidien des commandes. Le graphique est sauvegardé dans `rapport/graphiques/`.
+
+# %%
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Chemins compatibles depuis notebooks/ ou depuis la racine du projet
+db_path = Path("../database/bookworld.db")
+dossier_graphiques = Path("../rapport/graphiques")
+if not db_path.exists():
+    db_path = Path("database/bookworld.db")
+    dossier_graphiques = Path("rapport/graphiques")
+dossier_graphiques.mkdir(parents=True, exist_ok=True)
+
+with sqlite3.connect(db_path) as conn:
+    df_taux = pd.read_sql_query(
+        "SELECT rate_date, rate FROM exchange_rates ORDER BY rate_date ASC;",
+        conn,
+    )
+
+df_taux["rate_date"] = pd.to_datetime(df_taux["rate_date"])
+taux_min = df_taux.loc[df_taux["rate"].idxmin()]
+taux_max = df_taux.loc[df_taux["rate"].idxmax()]
+taux_moyen = df_taux["rate"].mean()
+amplitude_pct = (taux_max["rate"] - taux_min["rate"]) / taux_min["rate"] * 100
+
+sns.set_theme(style="whitegrid", font="Arial")
+fig, ax = plt.subplots(figsize=(6.6, 4.4), dpi=220)
+
+sns.lineplot(
+    data=df_taux,
+    x="rate_date",
+    y="rate",
+    color="#0EA5E9",
+    linewidth=2.2,
+    label="Taux journalier",
+    ax=ax,
+)
+ax.fill_between(
+    df_taux["rate_date"],
+    df_taux["rate"],
+    df_taux["rate"].min() - 0.008,
+    color="#0EA5E9",
+    alpha=0.10,
+)
+ax.axhline(
+    taux_moyen,
+    color="#1B365D",
+    linestyle="--",
+    linewidth=1.2,
+    alpha=0.8,
+    label=f"Moyenne : {taux_moyen:.4f}",
+)
+
+ax.scatter([taux_max["rate_date"]], [taux_max["rate"]], color="#059669", s=55, zorder=5)
+ax.scatter([taux_min["rate_date"]], [taux_min["rate"]], color="#D97706", s=55, zorder=5)
+
+ax.annotate(
+    f"Max : {taux_max['rate']:.4f}\n({taux_max['rate_date'].strftime('%d/%m')})",
+    xy=(taux_max["rate_date"], taux_max["rate"]),
+    xytext=(taux_max["rate_date"] + pd.Timedelta(days=18), taux_max["rate"] - 0.001),
+    fontsize=9.5,
+    fontweight="bold",
+    color="#059669",
+    arrowprops=dict(arrowstyle="->", color="#059669", lw=1.1),
+    bbox=dict(boxstyle="round,pad=0.3", fc="#ECFDF5", ec="#059669", lw=0.8),
+)
+ax.annotate(
+    f"Min : {taux_min['rate']:.4f}\n({taux_min['rate_date'].strftime('%d/%m')})",
+    xy=(taux_min["rate_date"], taux_min["rate"]),
+    xytext=(taux_min["rate_date"] + pd.Timedelta(days=18), taux_min["rate"] + 0.004),
+    fontsize=9.5,
+    fontweight="bold",
+    color="#D97706",
+    arrowprops=dict(arrowstyle="->", color="#D97706", lw=1.1),
+    bbox=dict(boxstyle="round,pad=0.3", fc="#FFFBEB", ec="#D97706", lw=0.8),
+)
+
+ax.set_title(
+    f"Évolution du taux GBP → EUR (127 jours | Amplitude +{amplitude_pct:.2f} %)",
+    fontsize=11,
+    fontweight="bold",
+    color="#1B365D",
+    pad=12,
+)
+ax.set_xlabel("")
+ax.set_ylabel("1 GBP en EUR", fontsize=10, color="#4B5563")
+ax.set_ylim(1.142, 1.222)
+ax.xaxis.set_major_locator(mdates.MonthLocator())
+ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+ax.tick_params(axis="both", labelsize=9, colors="#4B5563")
+ax.legend(loc="lower left", frameon=True, facecolor="white", edgecolor="#E2E8F0", fontsize=9)
+sns.despine()
+
+fig.tight_layout()
+chemin_taux = dossier_graphiques / "evolution_taux_change.png"
+fig.savefig(chemin_taux, dpi=220)
+plt.show()
+print("Graphique enregistré :", chemin_taux)
+
+# %% [markdown]
+# ## 10. Répartition CA HT, TVA et CA TTC par pays
+# Comparaison visuelle des montants hors taxe (`total_tax_excl_eur`) et de la TVA (`total_vat_eur`) constituant le chiffre d'affaires TTC (`total_revenue_eur`) pour les 8 pays de `sales_by_country`.
+
+# %%
+with sqlite3.connect(db_path) as conn:
+    df_ca = pd.read_sql_query(
+        """
+        SELECT
+            s.country_code,
+            s.country_name,
+            s.total_revenue_eur,
+            s.total_vat_eur,
+            s.total_tax_excl_eur,
+            c.vat_rate
+        FROM sales_by_country s
+        JOIN countries c ON s.country_code = c.country_code
+        ORDER BY s.total_revenue_eur DESC;
+        """,
+        conn,
+    )
+
+df_ca["pays_label"] = df_ca["country_name"] + " (" + df_ca["country_code"] + ")"
+
+sns.set_theme(style="whitegrid", font="Arial")
+fig, ax = plt.subplots(figsize=(6.1, 4.5), dpi=220)
+
+# Barre totale (TTC) en ambre en arrière-plan pour afficher la part TVA à droite du HT
+sns.barplot(
+    data=df_ca,
+    x="total_revenue_eur",
+    y="pays_label",
+    color="#D97706",
+    height=0.62,
+    label="TVA (€)",
+    ax=ax,
+)
+# Barre HT en bleu marine par-dessus
+sns.barplot(
+    data=df_ca,
+    x="total_tax_excl_eur",
+    y="pays_label",
+    color="#1B365D",
+    height=0.62,
+    label="CA HT (€)",
+    ax=ax,
+)
+
+for idx, row in df_ca.iterrows():
+    texte_ttc = f"{row['total_revenue_eur']:,.0f} € (TVA {int(row['vat_rate'])} %)".replace(",", " ")
+    ax.text(
+        row["total_revenue_eur"] + 70,
+        idx,
+        texte_ttc,
+        va="center",
+        ha="left",
+        fontsize=8.8,
+        fontweight="bold",
+        color="#1B365D",
+    )
+
+ax.set_xlim(0, df_ca["total_revenue_eur"].max() * 1.38)
+ax.set_xlabel("Montant en EUR (€)", fontsize=9.5, color="#4B5563")
+ax.set_ylabel("")
+ax.set_title(
+    "Répartition CA HT + TVA = CA TTC par pays (€)",
+    fontsize=11,
+    fontweight="bold",
+    color="#1B365D",
+    pad=26,
+)
+ax.tick_params(axis="y", labelsize=9.5, colors="#1F2937")
+ax.tick_params(axis="x", labelsize=8.8, colors="#4B5563")
+
+handles, labels = ax.get_legend_handles_labels()
+ax.legend(
+    [handles[1], handles[0]],
+    [labels[1], labels[0]],
+    loc="upper center",
+    bbox_to_anchor=(0.5, 1.09),
+    ncol=2,
+    frameon=False,
+    fontsize=9.5,
+)
+sns.despine()
+
+fig.tight_layout()
+chemin_ca = dossier_graphiques / "ca_ht_tva_par_pays.png"
+fig.savefig(chemin_ca, dpi=220)
+plt.show()
+print("Graphique enregistré :", chemin_ca)

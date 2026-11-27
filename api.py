@@ -76,3 +76,56 @@ def get_sales_by_country(
             ).fetchall()
 
     return [dict(ligne) for ligne in lignes]
+
+
+@app.get("/average-basket-by-country")
+def get_average_basket_by_country(
+    country_code: str | None = None,
+    _token=Depends(verifier_token),
+):
+    """Retourne le panier moyen TTC en EUR par pays (route protégée par Bearer Token)."""
+    if not DB_PATH.exists():
+        raise HTTPException(
+            status_code=500,
+            detail="Base de données introuvable. Lancez pipeline.py d'abord.",
+        )
+
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+
+        if country_code:
+            code = country_code.strip().upper()
+            lignes = conn.execute(
+                """
+                SELECT
+                    country_code,
+                    country_name,
+                    total_orders,
+                    total_revenue_eur,
+                    average_basket_eur
+                FROM sales_by_country
+                WHERE country_code = ?;
+                """,
+                (code,),
+            ).fetchall()
+
+            if not lignes:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Pays '{code}' introuvable.",
+                )
+        else:
+            lignes = conn.execute(
+                """
+                SELECT
+                    country_code,
+                    country_name,
+                    total_orders,
+                    total_revenue_eur,
+                    average_basket_eur
+                FROM sales_by_country
+                ORDER BY average_basket_eur DESC;
+                """
+            ).fetchall()
+
+    return [dict(ligne) for ligne in lignes]

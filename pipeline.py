@@ -288,7 +288,8 @@ def creer_table_sales_by_country():
         ROUND(SUM(montant_gbp_ttc), 2) AS total_revenue_gbp,
         ROUND(SUM(montant_eur_ttc), 2) AS total_revenue_eur,
         ROUND(SUM(montant_eur_ttc - montant_eur_ht), 2) AS total_vat_eur,
-        ROUND(SUM(montant_eur_ht), 2) AS total_tax_excl_eur
+        ROUND(SUM(montant_eur_ht), 2) AS total_tax_excl_eur,
+        ROUND(SUM(montant_eur_ttc) / COUNT(DISTINCT order_id), 2) AS average_basket_eur
     FROM ventes_detail
     GROUP BY
         country_code,

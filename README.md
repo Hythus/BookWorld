@@ -145,7 +145,7 @@ uv run python pipeline.py
    - typage explicite (`DATE` pour les dates, `float` pour les prix/taux, `int` pour les quantités),
    - normalisation des titres de livres (`strip()` + `lower()`),
    - **suppression des colonnes nominatives** `customer_first_name` et `customer_last_name` (principe de minimisation des données — **Article 5.1.c du RGPD**).
-6. **Création de la base finale & agrégation** : application de `schema_final.sql` dans `database/bookworld.db` (clés primaires et étrangères activées), insertion des données propres, puis calcul et sauvegarde de la table agrégée `sales_by_country` (CA TTC en GBP/EUR, TVA en EUR et CA HT en EUR).
+6. **Création de la base finale & agrégation** : application de `schema_final.sql` dans `database/bookworld.db` (clés primaires et étrangères activées), insertion des données propres, puis calcul et sauvegarde de la table agrégée `sales_by_country` (CA TTC en GBP/EUR, TVA en EUR, CA HT en EUR et panier moyen TTC en EUR `average_basket_eur`).
 
 ---
 
@@ -167,13 +167,15 @@ Ouvrir la documentation interactive **Swagger UI** dans le navigateur :
 | `GET` | `/health` | Publique | `200` | Indique si l'API et `database/bookworld.db` sont opérationnelles |
 | `GET` | `/sales-by-country` | Bearer Token | `200`, `401`, `500` | Retourne les ventes agrégées de tous les pays |
 | `GET` | `/sales-by-country?country_code=FR` | Bearer Token | `200`, `401`, `404`, `500` | Filtre les ventes agrégées sur un code pays donné |
+| `GET` | `/average-basket-by-country` | Bearer Token | `200`, `401`, `500` | Retourne le panier moyen TTC en EUR par pays (tri décroissant) |
+| `GET` | `/average-basket-by-country?country_code=FR` | Bearer Token | `200`, `401`, `404`, `500` | Filtre le panier moyen sur un code pays donné |
 
 ### Tester l'API
 
 - **Dans Swagger (`/docs`)** :
   1. Cliquer sur **Authorize** (en haut à droite).
   2. Coller la valeur de `API_TOKEN` (issue du fichier `.env`) et valider.
-  3. Exécuter `GET /sales-by-country` (avec ou sans `country_code`).
+  3. Exécuter `GET /sales-by-country` ou `GET /average-basket-by-country` (avec ou sans `country_code`).
 
 - **En ligne de commande (`curl`)** :
   ```bash
@@ -185,15 +187,21 @@ Ouvrir la documentation interactive **Swagger UI** dans le navigateur :
 
   # Filtrer sur la France (authentifié)
   curl -H "Authorization: Bearer votre_token_secret_ici" "http://127.0.0.1:8000/sales-by-country?country_code=FR"
+
+  # Récupérer le panier moyen par pays (authentifié)
+  curl -H "Authorization: Bearer votre_token_secret_ici" http://127.0.0.1:8000/average-basket-by-country
   ```
 
 - **En PowerShell (`Invoke-RestMethod`)** :
   ```powershell
   $headers = @{ Authorization = "Bearer votre_token_secret_ici" }
   Invoke-RestMethod "http://127.0.0.1:8000/sales-by-country?country_code=FR" -Headers $headers
+  Invoke-RestMethod "http://127.0.0.1:8000/average-basket-by-country" -Headers $headers
   ```
 
-### Exemple de réponse JSON (`GET /sales-by-country?country_code=FR`)
+### Exemples de réponses JSON
+
+**`GET /sales-by-country?country_code=FR`**
 
 ```json
 [
@@ -205,7 +213,22 @@ Ouvrir la documentation interactive **Swagger UI** dans le navigateur :
     "total_revenue_gbp": 3979.2,
     "total_revenue_eur": 4718.74,
     "total_vat_eur": 786.46,
-    "total_tax_excl_eur": 3932.28
+    "total_tax_excl_eur": 3932.28,
+    "average_basket_eur": 84.26
+  }
+]
+```
+
+**`GET /average-basket-by-country?country_code=FR`**
+
+```json
+[
+  {
+    "country_code": "FR",
+    "country_name": "France",
+    "total_orders": 56,
+    "total_revenue_eur": 4718.74,
+    "average_basket_eur": 84.26
   }
 ]
 ```
